@@ -13,18 +13,24 @@
 #include <regex.h>
 #include <limits.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 #include "trim.c"
-#include "auto_type_c.h"
+#include "type_tool.h"
 
 static  void run (const gchar *name, gint nparams, const GimpParam *param, gint *nreturn_vals, GimpParam **return_vals);
 static void query (void);
-void set_text(gint *image, const gchar *text);
+int set_text(gint *image, const gchar *text);
 const gchar *get_text_from_file(gchar *filename, int position);
 int is_space(gchar *text);
 void get_setting();
+void get_style();
 void update_position();
 void save_setting();
+void slice(const char * str, char * buffer, size_t start, size_t end);
+int only_tag(const char *tag);
 
+char homedir[256];
 
 GimpPlugInInfo PLUG_IN_INFO = {
 	NULL,
@@ -33,6 +39,8 @@ GimpPlugInInfo PLUG_IN_INFO = {
 	run
 };
 
+struct Text current_text;
+
 struct Setting setting = {
 	"",
 	"",
@@ -40,6 +48,14 @@ struct Setting setting = {
 	"",
 	0,
 };
+
+struct Font current_font = {
+	"",
+	"",
+	1,
+};
+
+struct Fonts fonts;
 
 static void query (void)
 	{
@@ -63,21 +79,20 @@ static void query (void)
   };
 
   gimp_install_procedure (
-    "plug-in-auto-type",
+    "plug-in-type-tool",
     "Auto type!",
     "Is a Auto type",
     "Alexandre dos Santos Alves",
     "Copyright Alexandre",
     "2023",
-    "_Auto type...",
+    "_Type Tool",
     "RGB*, GRAY*",
     GIMP_PLUGIN,
     G_N_ELEMENTS (args), 0,
     args, NULL);
-  gimp_plugin_menu_register ("plug-in-auto-type",
+  gimp_plugin_menu_register ("plug-in-type-tool",
                                "<Image>/Tools/"); 
 }
-
 
 static void run (
 	const gchar      *name,
@@ -92,27 +107,40 @@ static void run (
 	GimpRunMode       run_mode;
 	GimpDrawable     *drawable;
 
-	// Setting mandatory output values
 	*nreturn_vals = 1;
 	*return_vals  = values;
 
 	values[0].type = GIMP_PDB_STATUS;
 	values[0].data.d_status = status;
 
-	gint image = param[1].data.d_image;
+	char *homedir_tmp;
+
+	if ((homedir_tmp = getenv("HOME")) == NULL) {
+    homedir_tmp = getpwuid(getuid())->pw_dir;
+	}
+
+	strcpy(homedir, homedir_tmp);
+	strcat(homedir, "/.gimp_setting_type_tool");
+
 	drawable = gimp_drawable_get (param[2].data.d_drawable);
 
-	get_setting();
-	const gchar *text = get_text_from_file(setting.target, setting.position);
-	set_text(&image, text);
-	update_position();
-	save_setting();
+	gint is_to_ignore = 0;
+	gint image = param[1].data.d_image;
+
+	while(!is_to_ignore) {
+		get_setting();
+		get_style();
+		const gchar *text = get_text_from_file(setting.target, setting.position);
+		is_to_ignore = set_text(&image, text);
+		update_position();	
+		save_setting();
+	}
 
 	gimp_displays_flush ();
 	gimp_drawable_detach (drawable);
 }
 
-void set_text(gint *image, const gchar *text) {
+int set_text(gint *image, const gchar *text) {
 	gchar text_copy[strlen(text)];
 	gchar *text_trim, *text_splited;
 	gchar *fontname = setting.default_fontname;
@@ -151,8 +179,35 @@ void set_text(gint *image, const gchar *text) {
 		text_splited = strtok(text_trim, delim);
 
 		while (text_splited != NULL) {
+			int is_tag = FALSE;
+			if (only_tag(text_splited)) {
+			  for (int i = 0; i < fonts.length; ++i) {
+			  	if (strcmp(fonts.fonts[i].tag, text_splited) == 0) {
+			  		if (strcmp(fonts.fonts[i].fontname, "Black") == 0) {
+			  			current_font.black = 1;
+			  		} else if (strcmp(fonts.fonts[i].fontname, "White") == 0) {
+			  			current_font.black = 0;
+			  		} else if (strcmp(fonts.fonts[i].fontname, "Ignore") == 0) {
+			  			printf("FOda-se");
+			  			return 0;
+			  		} else {
+			  			strcpy(current_font.fontname, fonts.fonts[i].fontname);
+			  		}
+			  		is_tag = TRUE;
+			  		break;
+			  	}
+			  }
+			  if (is_tag) {
+			  	text_splited = strtok(NULL, delim);
+			  	continue;
+			  }
+			}
+
+			strcat(current_text.str, text_splited);
+			strcat(current_text.str, " ");
+
 			gint width, height, ascent, descent;
-			gimp_text_get_extents_fontname(text_splited, font_size, GIMP_PIXELS, fontname, &width, &height, &ascent, &descent);
+			gimp_text_get_extents_fontname(text_splited, font_size, GIMP_PIXELS, current_font.fontname, &width, &height, &ascent, &descent);
 
 			if (width >= width_limit) {
 				font_size -= 1;
@@ -178,19 +233,30 @@ void set_text(gint *image, const gchar *text) {
 		}
 	}
 
+	slice(current_text.str, current_text.str, 0, strlen(current_text.str) - 2);
+
 	if (max_height_text == 0) {
 		gint width, height, ascent, descent;
-		gimp_text_get_extents_fontname(text, font_size, GIMP_PIXELS, fontname, &width, &height, &ascent, &descent);
+		gimp_text_get_extents_fontname(current_text.str, font_size, GIMP_PIXELS, current_font.fontname, &width, &height, &ascent, &descent);
 		max_height_text += height + ascent + descent;
 	}
 
 	position[0] = (gdouble) x2 - width_selection * 0.5 - max_width_text * 0.5;
 	position[1] = (gdouble) y2 - height_selection * 0.5 - max_height_text * 0.5;
 
-	text_layer = gimp_text_fontname(*image, -1, position[0], position[1], text, 0, TRUE, font_size, GIMP_PIXELS, fontname);
+	text_layer = gimp_text_fontname(*image, -1, position[0], position[1], current_text.str, 0, TRUE, font_size, GIMP_PIXELS, current_font.fontname);
 
 	gimp_text_layer_set_justification(text_layer, 2);
 	gimp_text_layer_resize(text_layer, max_width_text, max_height_text + 100);
+	if (current_font.black) {
+		GimpRGB color = { 0, 0, 0, 1 };
+		gimp_text_layer_set_color(text_layer, &color);
+	} else {
+		GimpRGB color = { 255, 255, 255, 1 };
+		gimp_text_layer_set_color(text_layer, &color);
+	}
+
+	return 1;
 }
 
 const char *get_text_from_file(char *filename, int position) {
@@ -235,22 +301,12 @@ int is_space(char *text) {
 }
 
 void get_setting() {
-	gchar cwd[PATH_MAX];
 	FILE* file_ptr;
   gchar str[256], *setting_str;
-  gchar dir[] = "/.gimp_setting_type_tool";
   gchar delim[] = "|";
   gint count = 0;
 
-	if (getcwd(cwd, sizeof(cwd)) == NULL) {
-	  char error[100];
-  	snprintf(error, sizeof error, "unable to access file - %s (%d)", __FILE__ ,__LINE__);
-	  gimp_message(error);
-		gimp_quit();
-	}
-
-  strcat(cwd, dir);
-  file_ptr = fopen(cwd, "r");
+  file_ptr = fopen(homedir, "r");
 
   if (NULL == file_ptr) {
   	char error[100];
@@ -267,13 +323,14 @@ void get_setting() {
 
 		switch (count) {
 		case 0:
-			strcpy(setting.default_fontname,setting_str);
+			strcpy(setting.default_fontname, setting_str);
+			strcpy(current_font.fontname, setting_str);
 			break;
 		case 1:
 			setting.font_size = atoi(setting_str);
 			break;
 		case 2:
-			strcpy(setting.target,setting_str);
+			strcpy(setting.target, setting_str);
 			break;
 		case 3:
 			setting.position = atoi(setting_str);
@@ -286,6 +343,30 @@ void get_setting() {
 		count++;
   	setting_str = strtok(NULL, delim);
 	}
+
+  fclose(file_ptr);
+}
+
+void get_style() {
+	FILE* file_ptr;
+  gchar str[100];
+  file_ptr = fopen(setting.style_file, "r");
+
+  if (NULL == file_ptr) {
+    char error[100];
+  	snprintf(error, sizeof error, "unable to access file - %s (%d)", __FILE__ ,__LINE__);
+	  gimp_message(error);
+  	gimp_quit();
+  }
+
+  fonts.length = 0;
+
+  while (fgets(str, 100, file_ptr) != NULL) {
+  	char *text_trim = trim(str);
+  	slice(text_trim, fonts.fonts[fonts.length].tag, 0, 1);
+  	slice(text_trim, fonts.fonts[fonts.length].fontname, 3, strlen(text_trim));
+  	fonts.length++;
+  }
 
   fclose(file_ptr);
 }
@@ -317,23 +398,40 @@ void update_position() {
 }
 
 void save_setting() {
-	gchar cwd[PATH_MAX];
 	FILE* file_setting;
-  gchar dir[] = "/.gimp_setting_type_tool";
-
-  if (getcwd(cwd, sizeof(cwd)) == NULL) {
+	file_setting = fopen (homedir, "w");
+  
+  if (NULL == file_setting) {
   	char error[100];
   	snprintf(error, sizeof error, "unable to access file - %s (%d)", __FILE__ ,__LINE__);
 	  gimp_message(error);
-		gimp_quit();
-	}
-
-	strcat(cwd, dir);
-	file_setting = fopen (cwd, "w");
+  	gimp_quit();
+  }
 
 	fprintf(file_setting, "%s|%f|%s|%d|%s", setting.default_fontname, setting.font_size, setting.target, setting.position, setting.style_file);
 
 	fclose(file_setting);
+}
+
+void slice(const char * str, char * buffer, size_t start, size_t end) {
+    size_t j = 0;
+    for ( size_t i = start; i <= end; ++i ) {
+        buffer[j++] = str[i];
+    }
+    buffer[j] = 0;
+}
+
+int only_tag(const char *tag) {
+	regex_t reegex;
+	int value;
+	value = regcomp( &reegex, "[^A-Za-z0-9 ]", 0 );
+
+	value = regexec( &reegex, tag, 0, NULL, 0 );
+
+	if (value == 0) {
+		return 1; // Found
+	}
+	return 0; // Error
 }
 
 MAIN()
