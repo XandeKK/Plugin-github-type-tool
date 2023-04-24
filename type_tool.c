@@ -20,14 +20,14 @@
 
 static  void run (const gchar *name, gint nparams, const GimpParam *param, gint *nreturn_vals, GimpParam **return_vals);
 static void query (void);
-int set_text(gint *image, const gchar *text);
+int set_text(gint image, const gchar *text);
 const gchar *get_text_from_file(gchar *filename, int position);
-int is_space(gchar *text);
 void get_setting();
 void get_style();
 void update_position();
 void save_setting();
 void slice(const char * str, char * buffer, size_t start, size_t end);
+int is_space(gchar *text);
 int only_tag(const char *tag);
 
 char homedir[256];
@@ -131,7 +131,7 @@ static void run (
 		get_setting();
 		get_style();
 		const gchar *text = get_text_from_file(setting.target, setting.position);
-		is_to_ignore = set_text(&image, text);
+		is_to_ignore = set_text(image, text);
 		update_position();	
 		save_setting();
 	}
@@ -140,7 +140,7 @@ static void run (
 	gimp_drawable_detach (drawable);
 }
 
-int set_text(gint *image, const gchar *text) {
+int set_text(gint image, const gchar *text) {
 	gchar text_copy[strlen(text)];
 	gchar *text_trim, *text_splited;
 	gchar *fontname = setting.default_fontname;
@@ -157,7 +157,7 @@ int set_text(gint *image, const gchar *text) {
 	gint width_line = 0, max_width_text = 0, max_height_text = 0;
 	gint text_layer;
 
-	gimp_selection_bounds(*image, &non_empty, &x1, &y1, &x2, &y2);
+	gimp_selection_bounds(image, &non_empty, &x1, &y1, &x2, &y2);
 
 	if (strlen(text) < 1) {
 		gimp_message("Need a text!");
@@ -189,9 +189,9 @@ int set_text(gint *image, const gchar *text) {
 			  		} else if (strcmp(fonts.fonts[i].fontname, "White") == 0) {
 			  			current_font.black = 0;
 			  		} else if (strcmp(fonts.fonts[i].fontname, "Ignore") == 0) {
-			  			printf("FOda-se");
 			  			return 0;
-			  		} else {
+			  		}
+			  		else {
 			  			strcpy(current_font.fontname, fonts.fonts[i].fontname);
 			  		}
 			  		is_tag = TRUE;
@@ -249,7 +249,7 @@ int set_text(gint *image, const gchar *text) {
 		position[1] = (gdouble) y1;
 	}
 
-	text_layer = gimp_text_fontname(*image, -1, position[0], position[1], current_text.str, 0, TRUE, font_size, GIMP_PIXELS, current_font.fontname);
+	text_layer = gimp_text_fontname(image, -1, position[0], position[1], current_text.str, 0, TRUE, font_size, GIMP_PIXELS, current_font.fontname);
 
 	gimp_text_layer_set_justification(text_layer, 2);
 	gimp_text_layer_resize(text_layer, max_width_text, max_height_text + 100);
