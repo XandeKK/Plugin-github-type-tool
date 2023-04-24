@@ -171,9 +171,10 @@ int set_text(gint *image, const gchar *text) {
 
 	width_selection = x2 - x1;
 	height_selection = y2 - y1;
-	width_limit = width_selection * 0.8;
+	width_limit = width_selection * 0.9;
 
 	while (!okay) {
+		strcpy(current_text.str, "");
 		strcpy(text_copy, text);
 		text_trim = trim(text_copy);
 		text_splited = strtok(text_trim, delim);
@@ -243,6 +244,10 @@ int set_text(gint *image, const gchar *text) {
 
 	position[0] = (gdouble) x2 - width_selection * 0.5 - max_width_text * 0.5;
 	position[1] = (gdouble) y2 - height_selection * 0.5 - max_height_text * 0.5;
+
+	if (position[1] < y1) {
+		position[1] = (gdouble) y1;
+	}
 
 	text_layer = gimp_text_fontname(*image, -1, position[0], position[1], current_text.str, 0, TRUE, font_size, GIMP_PIXELS, current_font.fontname);
 
@@ -372,10 +377,18 @@ void get_style() {
 }
 
 void update_position() {
+  regex_t reegex;
+	int value;
 	FILE* file_ptr;
   char str[256];
   gint line_count = 0;
   file_ptr = fopen(setting.target, "r");
+
+  for (int i = 0; i < fonts.length; ++i) {
+  	if (strcmp(fonts.fonts[i].fontname, "Ignore") == 0) {
+			regcomp( &reegex, fonts.fonts[i].tag, 0 );
+  	}
+  }
   
   if (NULL == file_ptr) {
   	char error[100];
@@ -387,7 +400,7 @@ void update_position() {
   while (fgets(str, 256, file_ptr) != NULL) {
   	line_count++;
   	if (line_count > setting.position) {
-  		if (!is_space(str)) {
+  		if (!is_space(str) && regexec( &reegex, str, 0, NULL, 0 )) {
   			setting.position = line_count;
   			break;
   		}
