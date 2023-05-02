@@ -153,7 +153,7 @@ int set_text(gint image, const gchar *text) {
 	gdouble position[2];
 
 	gint x1, y1, x2, y2;
-	gint width_selection, height_selection, width_limit;
+	gint width_selection, height_selection, width_limit, height_limit;
 	gint width_line = 0, max_width_text = 0, max_height_text = 0;
 	gint text_layer;
 
@@ -172,6 +172,7 @@ int set_text(gint image, const gchar *text) {
 	width_selection = x2 - x1;
 	height_selection = y2 - y1;
 	width_limit = width_selection * 0.9;
+	height_limit = height_selection * 0.9;
 
 	while (!okay) {
 		strcpy(current_text.str, "");
@@ -246,7 +247,7 @@ int set_text(gint image, const gchar *text) {
 	position[1] = (gdouble) y2 - height_selection * 0.5 - max_height_text * 0.5;
 
 	if (position[1] < y1) {
-		position[1] = (gdouble) y1;
+		position[1] = (gdouble) y1 * 1.1;
 	}
 
 	text_layer = gimp_text_fontname(image, -1, position[0], position[1], current_text.str, 0, TRUE, font_size, GIMP_PIXELS, current_font.fontname);
