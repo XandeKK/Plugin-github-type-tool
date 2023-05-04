@@ -21,7 +21,6 @@
 
 static  void run (const gchar *name, gint nparams, const GimpParam *param, gint *nreturn_vals, GimpParam **return_vals);
 static void query (void);
-int set_text(gint image, const gchar *text);
 int set_text_new(gint image, gchar *text);
 const gchar *get_text_from_file(gchar *filename, int position);
 void get_setting();
