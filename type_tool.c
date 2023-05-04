@@ -15,20 +15,23 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <pwd.h>
+#include <math.h>
 #include "trim.c"
 #include "type_tool.h"
 
 static  void run (const gchar *name, gint nparams, const GimpParam *param, gint *nreturn_vals, GimpParam **return_vals);
 static void query (void);
 int set_text(gint image, const gchar *text);
+int set_text_new(gint image, gchar *text);
 const gchar *get_text_from_file(gchar *filename, int position);
 void get_setting();
 void get_style();
 void update_position();
 void save_setting();
-void slice(const char * str, char * buffer, size_t start, size_t end);
+void slice(const gchar * str, gchar * buffer, size_t start, size_t end);
 int is_space(gchar *text);
-int only_tag(const char *tag);
+int only_tag(const gchar *tag);
+const gchar *get_biggest_word(const gchar *text);
 
 char homedir[256];
 
@@ -127,20 +130,23 @@ static void run (
 	gint is_to_ignore = 0;
 	gint image = param[1].data.d_image;
 
+	gimp_debug_timer_start();
+
 	while(!is_to_ignore) {
 		get_setting();
 		get_style();
 		const gchar *text = get_text_from_file(setting.target, setting.position);
-		is_to_ignore = set_text(image, text);
+		is_to_ignore = set_text_new(image, text);
 		update_position();	
 		save_setting();
 	}
 
 	gimp_displays_flush ();
 	gimp_drawable_detach (drawable);
+	gimp_debug_timer_end();
 }
 
-int set_text(gint image, const gchar *text) {
+int set_text_new(gint image, gchar *text) {
 	gchar text_copy[strlen(text)];
 	gchar *text_trim, *text_splited;
 	gchar *fontname = setting.default_fontname;
@@ -171,68 +177,62 @@ int set_text(gint image, const gchar *text) {
 
 	width_selection = x2 - x1;
 	height_selection = y2 - y1;
-	width_limit = width_selection * 0.9;
+	width_limit = width_selection * 0.73;
 	height_limit = height_selection * 0.9;
 
-	while (!okay) {
-		strcpy(current_text.str, "");
-		strcpy(text_copy, text);
-		text_trim = trim(text_copy);
-		text_splited = strtok(text_trim, delim);
+	const gchar *biggest_word = get_biggest_word(text);
 
-		while (text_splited != NULL) {
-			int is_tag = FALSE;
-			if (only_tag(text_splited)) {
-			  for (int i = 0; i < fonts.length; ++i) {
-			  	if (strcmp(fonts.fonts[i].tag, text_splited) == 0) {
-			  		if (strcmp(fonts.fonts[i].fontname, "Black") == 0) {
-			  			current_font.black = 1;
-			  		} else if (strcmp(fonts.fonts[i].fontname, "White") == 0) {
-			  			current_font.black = 0;
-			  		} else if (strcmp(fonts.fonts[i].fontname, "Ignore") == 0) {
-			  			return 0;
-			  		}
-			  		else {
-			  			strcpy(current_font.fontname, fonts.fonts[i].fontname);
-			  		}
-			  		is_tag = TRUE;
-			  		break;
-			  	}
-			  }
-			  if (is_tag) {
-			  	text_splited = strtok(NULL, delim);
-			  	continue;
-			  }
-			}
+	gint width, height, ascent, descent;
+	gimp_text_get_extents_fontname(biggest_word, font_size, GIMP_PIXELS, current_font.fontname, &width, &height, &ascent, &descent);
 
-			strcat(current_text.str, text_splited);
-			strcat(current_text.str, " ");
+	font_size = floor((font_size * width_limit) / width);
 
-			gint width, height, ascent, descent;
-			gimp_text_get_extents_fontname(text_splited, font_size, GIMP_PIXELS, current_font.fontname, &width, &height, &ascent, &descent);
+	text_trim = trim(text);
+	text_splited = strtok(text_trim, delim);
 
-			if (width >= width_limit) {
-				font_size -= 1;
-				width_line = 0;
-				max_height_text = 0;
-				okay = FALSE;
-				break;
-			}
-
-			if ((width_line + width) > width_limit) {
-				max_height_text += height + ascent + descent;
-				width_line = 0;
-			}
-
-			width_line += width;
-			okay = TRUE;
-
-			if (width_line > max_width_text) {
-				max_width_text = width_line;
-			}
-
-			text_splited = strtok(NULL, delim);
+	while (text_splited != NULL) {
+		int is_tag = FALSE;
+		if (only_tag(text_splited)) {
+		  for (int i = 0; i < fonts.length; ++i) {
+		  	if (strcmp(fonts.fonts[i].tag, text_splited) == 0) {
+		  		if (strcmp(fonts.fonts[i].fontname, "Black") == 0) {
+		  			current_font.black = 1;
+		  		} else if (strcmp(fonts.fonts[i].fontname, "White") == 0) {
+		  			current_font.black = 0;
+		  		} else if (strcmp(fonts.fonts[i].fontname, "Ignore") == 0) {
+		  			return 0;
+		  		}
+		  		else {
+		  			strcpy(current_font.fontname, fonts.fonts[i].fontname);
+		  		}
+		  		is_tag = TRUE;
+		  		break;
+		  	}
+		  }
+		  if (is_tag) {
+		  	text_splited = strtok(NULL, delim);
+		  	continue;
+		  }
 		}
+
+		strcat(current_text.str, text_splited);
+		strcat(current_text.str, " ");
+
+		gint width, height, ascent, descent;
+		gimp_text_get_extents_fontname(text_splited, font_size, GIMP_PIXELS, current_font.fontname, &width, &height, &ascent, &descent);
+
+		if ((width_line + width) > width_limit) {
+			max_height_text += height + ascent + descent;
+			width_line = 0;
+		}
+
+		width_line += width;
+
+		if (width_line > max_width_text) {
+			max_width_text = width_line;
+		}
+
+		text_splited = strtok(NULL, delim);
 	}
 
 	slice(current_text.str, current_text.str, 0, strlen(current_text.str) - 2);
@@ -265,9 +265,9 @@ int set_text(gint image, const gchar *text) {
 	return 1;
 }
 
-const char *get_text_from_file(char *filename, int position) {
+const gchar *get_text_from_file(char *filename, int position) {
 	FILE* file_ptr;
-  static char str[256];
+  static gchar str[256];
   gchar *output;
   gint line_count = 0;
   file_ptr = fopen(filename, "r");
@@ -359,7 +359,7 @@ void get_style() {
   file_ptr = fopen(setting.style_file, "r");
 
   if (NULL == file_ptr) {
-    char error[100];
+    gchar error[100];
   	snprintf(error, sizeof error, "unable to access file - %s (%d)", __FILE__ ,__LINE__);
 	  gimp_message(error);
   	gimp_quit();
@@ -381,7 +381,7 @@ void update_position() {
   regex_t reegex;
 	int value;
 	FILE* file_ptr;
-  char str[256];
+  gchar str[256];
   gint line_count = 0;
   file_ptr = fopen(setting.target, "r");
 
@@ -427,7 +427,7 @@ void save_setting() {
 	fclose(file_setting);
 }
 
-void slice(const char * str, char * buffer, size_t start, size_t end) {
+void slice(const gchar * str, gchar * buffer, size_t start, size_t end) {
     size_t j = 0;
     for ( size_t i = start; i <= end; ++i ) {
         buffer[j++] = str[i];
@@ -435,7 +435,7 @@ void slice(const char * str, char * buffer, size_t start, size_t end) {
     buffer[j] = 0;
 }
 
-int only_tag(const char *tag) {
+int only_tag(const gchar *tag) {
 	regex_t reegex;
 	int value;
 	value = regcomp( &reegex, "[^A-Za-z0-9 ]", 0 );
@@ -446,6 +446,26 @@ int only_tag(const char *tag) {
 		return 1; // Found
 	}
 	return 0; // Error
+}
+
+const gchar *get_biggest_word(const gchar *text) {
+	gint size = strlen(text);
+	gint i, len, max = -1;
+	static gchar longestWord[50];
+
+	for(i = 0; i <= size; i++) {
+		if(text[i] == ' ' || text[i] == '\0') {
+      if(len > max) {
+				max = len;
+        strncpy(longestWord, &text[i - len], len);
+      }
+      len = 0;
+    } else {
+			len++;
+    }
+  }
+
+	return longestWord;
 }
 
 MAIN()
