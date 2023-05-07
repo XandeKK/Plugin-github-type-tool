@@ -124,8 +124,6 @@ static void run (
 	strcpy(homedir, homedir_tmp);
 	strcat(homedir, "/.gimp_setting_type_tool");
 
-	drawable = gimp_drawable_get (param[2].data.d_drawable);
-
 	gint is_to_ignore = 0;
 	gint image = param[1].data.d_image;
 
@@ -141,7 +139,6 @@ static void run (
 	}
 
 	gimp_displays_flush ();
-	gimp_drawable_detach (drawable);
 	gimp_debug_timer_end();
 }
 
@@ -158,7 +155,7 @@ int set_text_new(gint image, gchar *text) {
 	gdouble position[2];
 
 	gint x1, y1, x2, y2;
-	gint width_selection, height_selection, width_limit, height_limit;
+	gint width_selection, height_selection, width_limit;
 	gint width_line = 0, max_width_text = 0, max_height_text = 0;
 	gint text_layer;
 
@@ -176,8 +173,7 @@ int set_text_new(gint image, gchar *text) {
 
 	width_selection = x2 - x1;
 	height_selection = y2 - y1;
-	width_limit = width_selection * 0.73;
-	height_limit = height_selection * 0.9;
+	width_limit = width_selection * 0.78;
 
 	const gchar *biggest_word = get_biggest_word(text);
 
@@ -185,6 +181,10 @@ int set_text_new(gint image, gchar *text) {
 	gimp_text_get_extents_fontname(biggest_word, font_size, GIMP_PIXELS, current_font.fontname, &width, &height, &ascent, &descent);
 
 	font_size = floor((font_size * width_limit) / width);
+
+	if (font_size > setting.font_size) {
+		font_size = setting.font_size;
+	}
 
 	text_trim = trim(text);
 	text_splited = strtok(text_trim, delim);
@@ -246,7 +246,7 @@ int set_text_new(gint image, gchar *text) {
 	position[1] = (gdouble) y2 - height_selection * 0.5 - max_height_text * 0.5;
 
 	if (position[1] < y1) {
-		position[1] = (gdouble) y1 * 1.1;
+		position[1] = (gdouble) y1 * 1.15;
 	}
 
 	text_layer = gimp_text_fontname(image, -1, position[0], position[1], current_text.str, 0, TRUE, font_size, GIMP_PIXELS, current_font.fontname);
